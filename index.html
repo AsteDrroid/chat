@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Chat Web</title>
+  <style>
+    body { font-family: Arial; margin: 20px; }
+    #chat { border: 1px solid #ccc; padding: 10px; height: 300px; overflow-y: scroll; }
+    #message { width: 80%; }
+  </style>
+</head>
+<body>
+  <h2>Chat en ligne</h2>
+  <label>Nom : <input type="text" id="nom" /></label>
+  <div id="chat"></div>
+  <input type="text" id="message" placeholder="Votre message..." />
+  <button onclick="sendMessage()">Envoyer</button>
+
+  <script>
+    let ws;
+    const nomInput = document.getElementById('nom');
+    const messageInput = document.getElementById('message');
+    const chatDiv = document.getElementById('chat');
+
+    nomInput.addEventListener('change', connect);
+
+    function connect() {
+      ws = new WebSocket('ws://localhost:6789');
+      ws.onmessage = (event) => {
+        const msg = document.createElement('div');
+        msg.textContent = event.data;
+        chatDiv.appendChild(msg);
+        chatDiv.scrollTop = chatDiv.scrollHeight;
+      };
+    }
+
+    function sendMessage() {
+      const nom = nomInput.value;
+      const msg = messageInput.value;
+      if (ws && nom && msg) {
+        ws.send(`${nom} > ${msg}`);
+        messageInput.value = '';
+      }
+    }
+  </script>
+</body>
+</html>
