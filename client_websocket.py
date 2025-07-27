@@ -1,42 +1,89 @@
-# client_websocket.py
-import asyncio
-import websockets
+from flask import Flask, render_template_string, request
+from flask_socketio import SocketIO, send
 import socket
+import threading
 
-TCP_SERVER_HOST = "127.0.0.1"
-TCP_SERVER_PORT = 9001
+# Connexion au serveur TCP (server.py)
+tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+tcp_socket.connect(("127.0.0.1", 9001))
 
-connected_clients = set()
+# Création serveur Flask
+app = Flask(__name__)
+socketio = SocketIO(app, cors_allowed_origins="*")
 
-async def handle_websocket(websocket, path):
-    # Connexion au serveur TCP
-    tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    tcp_socket.connect((TCP_SERVER_HOST, TCP_SERVER_PORT))
+# HTML en string (comme un fichier index.html)
+html = """
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Chat Web</title>
+  <style>
+    body { font-family: Arial; margin: 20px; }
+    #chat { border: 1px solid #ccc; padding: 10px; height: 300px; overflow-y: scroll; }
+    #message { width: 80%; }
+  </style>
+</head>
+<body>
+  <h2>Chat en ligne</h2>
+  <label>Nom : <input type="text" id="nom" /></label>
+  <div id="chat"></div>
+  <input type="text" id="message" placeholder="Votre message..." />
+  <button onclick="sendMessage()">Envoyer</button>
 
-    connected_clients.add(websocket)
-    try:
-        async def receive_from_web():
-            async for message in websocket:
-                tcp_socket.send(message.encode('utf-8'))
+  <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"
+    integrity="sha384-LfQ3fE5omTYq5sGKmzChpMp2IjTFqn+LkePS1I7u66UzYYu0pEK0rD94Y2FqAT0B"
+    crossorigin="anonymous"></script>
+  <script>
+    const socket = io();
+    const nomInput = document.getElementById('nom');
+    const messageInput = document.getElementById('message');
+    const chatDiv = document.getElementById('chat');
 
-        async def receive_from_tcp():
-            while True:
-                data = tcp_socket.recv(128)
-                if not data:
-                    break
-                await websocket.send(data.decode('utf-8'))
+    socket.on('message', (data) => {
+      const msg = document.createElement('div');
+      msg.textContent = data;
+      chatDiv.appendChild(msg);
+      chatDiv.scrollTop = chatDiv.scrollHeight;
+    });
 
-        await asyncio.gather(receive_from_web(), receive_from_tcp())
+    function sendMessage() {
+      const nom = nomInput.value;
+      const msg = messageInput.value;
+      if (nom && msg) {
+        socket.send(`${nom} > ${msg}`);
+        messageInput.value = '';
+      }
+    }
+  </script>
+</body>
+</html>
+"""
 
-    except websockets.exceptions.ConnectionClosed:
-        pass
-    finally:
-        connected_clients.remove(websocket)
-        tcp_socket.close()
+# Route principale : page web
+@app.route("/")
+def index():
+    return render_template_string(html)
 
-# Lancer un serveur WebSocket sur le port 6789
-start_server = websockets.serve(handle_websocket, "localhost", 6789)
+# Message reçu du navigateur → on l'envoie au serveur TCP
+@socketio.on("message")
+def handle_message(msg):
+    tcp_socket.send(msg.encode("utf-8"))
 
-asyncio.get_event_loop().run_until_complete(start_server)
-print("WebSocket server started on ws://localhost:6789")
-asyncio.get_event_loop().run_forever()
+# Écoute en parallèle des messages du serveur TCP → envoie au navigateur
+def receive_from_tcp():
+    while True:
+        try:
+            data = tcp_socket.recv(128)
+            if data:
+                socketio.emit("message", data.decode("utf-8"))
+        except:
+            break
+
+# 🔁 Thread pour écouter le serveur TCP
+threading.Thread(target=receive_from_tcp, daemon=True).start()
+
+# ✅ MAIN — fichier principal à exécuter
+if __name__ == "__main__":
+    print("Serveur Web disponible sur http://localhost:5000")
+    socketio.run(app, host="0.0.0.0", port=5000)
